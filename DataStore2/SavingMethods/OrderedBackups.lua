@@ -18,7 +18,8 @@
 --]]
 
 local DataStoreServiceRetriever = require(script.Parent.Parent.DataStoreServiceRetriever)
-local Promise = require(script.Parent.Parent.Promise)
+local RP = game:GetService("ReplicatedStorage")
+local Promise = require(RP.Libraries.Promise)
 
 local OrderedBackups = {}
 OrderedBackups.__index = OrderedBackups

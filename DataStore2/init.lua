@@ -27,12 +27,13 @@
 	coinStore:Get()
 --]]
 
+local RP = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Constants = require(script.Constants)
 local IsPlayer = require(script.IsPlayer)
-local Promise = require(script.Promise)
+local Promise = require(RP.Libraries.Promise)
 local SavingMethods = require(script.SavingMethods)
 local Settings = require(script.Settings)
 local TableUtil = require(script.TableUtil)
@@ -452,6 +453,10 @@ local combinedDataStoreInfo = {}
 	All the keys to combine under one table.
 	</parameter>
 **--]]
+function GetUserId(UserIdOrPlayer)
+    return typeof(UserIdOrPlayer) == "Instance" and UserIdOrPlayer.UserId or UserIdOrPlayer
+end
+
 function DataStore2.Combine(mainKey, ...)
 	for _, name in ipairs({...}) do
 		combinedDataStoreInfo[name] = mainKey
@@ -462,9 +467,11 @@ function DataStore2.ClearCache()
 	DataStoreCache = {}
 end
 
+
 function DataStore2.SaveAll(player)
-	if DataStoreCache[player] then
-		for _, dataStore in pairs(DataStoreCache[player]) do
+    local UserId = GetUserId()
+	if DataStoreCache[UserId] then
+		for _, dataStore in pairs(DataStoreCache[UserId]) do
 			if dataStore.combinedStore == nil then
 				dataStore:Save()
 			end
@@ -482,7 +489,8 @@ function DataStore2.PatchGlobalSettings(patch)
 	end
 end
 
-function DataStore2.__call(_, dataStoreName, player)
+function DataStore2.__call(_, dataStoreName, playerOrUserId, doNotSave, dataStoreType)
+    local UserId = GetUserId(playerOrUserId)
 	assert(
 		typeof(dataStoreName) == "string" and IsPlayer.Check(player),
 		("DataStore2() API call expected {string dataStoreName, Player player}, got {%s, %s}")
@@ -492,8 +500,8 @@ function DataStore2.__call(_, dataStoreName, player)
 		)
 	)
 
-	if DataStoreCache[player] and DataStoreCache[player][dataStoreName] then
-		return DataStoreCache[player][dataStoreName]
+	if DataStoreCache[UserId] and DataStoreCache[UserId][dataStoreName] then
+		return DataStoreCache[UserId][dataStoreName]
 	elseif combinedDataStoreInfo[dataStoreName] then
 		local dataStore = DataStore2(combinedDataStoreInfo[dataStoreName], player)
 
@@ -523,69 +531,71 @@ function DataStore2.__call(_, dataStoreName, player)
 			end,
 		})
 
-		if not DataStoreCache[player] then
-			DataStoreCache[player] = {}
+		if not DataStoreCache[UserId] then
+			DataStoreCache[UserId] = {}
 		end
 
-		DataStoreCache[player][dataStoreName] = combinedStore
+		DataStoreCache[UserId][dataStoreName] = combinedStore
 		return combinedStore
 	end
 
 	local dataStore = {
 		Name = dataStoreName,
-		UserId = player.UserId,
+		UserId = UserId,
 		callbacks = {},
 		beforeInitialGet = {},
 		afterSave = {},
 		bindToClose = {},
 	}
 
-	dataStore.savingMethod = SavingMethods[Settings.SavingMethod].new(dataStore)
+	dataStore.savingMethod = SavingMethods[dataStoreType or Settings.SavingMethod].new(dataStore)
 
 	setmetatable(dataStore, DataStoreMetatable)
 
 	local event, fired = Instance.new("BindableEvent"), false
 
-	game:BindToClose(function()
-		if not fired then
-			spawn(function()
-				player.Parent = nil -- Forces AncestryChanged to fire and save the data
-			end)
+    if not doNotSave then
+        game:BindToClose(function()
+            if not fired then
+                spawn(function()
+                    player.Parent = nil -- Forces AncestryChanged to fire and save the data
+                end)
 
-			event.Event:Wait()
-		end
+                event.Event:Wait()
+            end
 
-		local value = dataStore:Get(nil, true)
+            local value = dataStore:Get(nil, true)
 
-		for _, bindToClose in ipairs(dataStore.bindToClose) do
-			bindToClose(player, value)
-		end
-	end)
+            for _, bindToClose in ipairs(dataStore.bindToClose) do
+                bindToClose(player, value)
+            end
+        end)
 
-	local playerLeavingConnection
-	playerLeavingConnection = player.AncestryChanged:Connect(function()
-		if player:IsDescendantOf(game) then return end
-		playerLeavingConnection:Disconnect()
-		dataStore:SaveAsync():andThen(function()
-			print("player left, saved", dataStoreName)
-		end):catch(function(error)
-			-- TODO: Something more elegant
-			warn("error when player left!", error)
-		end):finally(function()
-			event:Fire()
-			fired = true
-		end)
+        local playerLeavingConnection
+        playerLeavingConnection = player.AncestryChanged:Connect(function()
+            if player:IsDescendantOf(game) then return end
+            playerLeavingConnection:Disconnect()
+            dataStore:SaveAsync():andThen(function()
+                print("player left, saved", dataStoreName)
+            end):catch(function(error)
+                -- TODO: Something more elegant
+                warn("error when player left!", error)
+            end):finally(function()
+                event:Fire()
+                fired = true
+            end)
 
-		delay(40, function() --Give a long delay for people who haven't figured out the cache :^(
-			DataStoreCache[player] = nil
-		end)
-	end)
+            delay(40, function() --Give a long delay for people who haven't figured out the cache :^(
+                DataStoreCache[UserId] = nil
+            end)
+        end)
+    end)
 
-	if not DataStoreCache[player] then
-		DataStoreCache[player] = {}
+	if not DataStoreCache[UserId] then
+		DataStoreCache[UserId] = {}
 	end
 
-	DataStoreCache[player][dataStoreName] = dataStore
+	DataStoreCache[UserId][dataStoreName] = dataStore
 
 	return dataStore
 end

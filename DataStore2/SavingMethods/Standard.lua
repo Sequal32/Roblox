@@ -2,7 +2,8 @@
 -- The key you provide to DataStore2 is the name of the store with GetDataStore
 -- GetAsync/UpdateAsync are then called based on the user ID
 local DataStoreServiceRetriever = require(script.Parent.Parent.DataStoreServiceRetriever)
-local Promise = require(script.Parent.Parent.Promise)
+local RP = game:GetService("ReplicatedStorage")
+local Promise = require(RP.Libraries.Promise)
 
 local Standard = {}
 Standard.__index = Standard
